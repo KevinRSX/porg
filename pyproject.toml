@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "porg"
+version = "0.1.0"
+description = "A command line tool to organize research papers"
+authors = [{name = "Kevin Xue", email = "kaiwenxue1@gmail.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "requests",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.setuptools.package-dir]
+"" = "."
+
+[project.scripts]
+porg = "src.porg:main"
+
+[tool.ruff]
+select = [
+    "E",    # pycodestyle (PEP 8)
+    "F",    # Pyflakes (unused imports, undefined names)
+    "B",    # flake8-bugbear (likely bugs, bad patterns)
+    "SIM",  # flake8-simplify (unnecessary complexity)
+    "UP",   # pyupgrade (modern Python syntax)
+    "G",    # flake8-logging-format
+    "ANN",  # flake8-annotations (type annotations)
+    # "I",  # Do not enforce isort rules
+]
+ignore = [
+    "E731",    # Allow lambda assignments (can be handy in research code)
+    "B007",    # Allow unused loop variables (e.g., for i, _ in enumerate(...))
+    "UP032",   # Allow f-string formatting patterns Ruff flags
+    # "ANN101",  # Allow missing type annotations for self and cls
+]
