@@ -301,7 +301,7 @@ def prompt_for_status(prop_name: str, options: list) -> dict:
     return default_option  # Return default on invalid input
 
 
-def add_paper(paper_name: str, paper_url: str = None) -> None:
+def add_paper(paper_name: str, paper_url: str = None, conventional_name: str = None) -> None:
     """Add a paper to the Notion database."""
     notion_config = load_notion_config()
     
@@ -356,6 +356,19 @@ def add_paper(paper_name: str, paper_url: str = None) -> None:
                     }
                 ]
             }
+        }
+    
+    # Handle Conventional Name (if provided and field exists)
+    if conventional_name and "Conventional Name" in properties:
+        page_properties["Conventional Name"] = {
+            "rich_text": [
+                {
+                    "type": "text",
+                    "text": {
+                        "content": conventional_name
+                    }
+                }
+            ]
         }
     
     # Handle Related Project (multi_select)
@@ -459,3 +472,45 @@ def add_paper(paper_name: str, paper_url: str = None) -> None:
     
     except Exception as e:
         print(f"❌ Error creating page: {e}")
+
+
+def check_paper_exists_in_notion(conventional_name: str) -> bool:
+    """Check if a paper exists in Notion database by conventional name."""
+    notion_config = load_notion_config()
+    
+    if not notion_config:
+        return False
+    
+    token = notion_config['token']
+    database_id = notion_config['database_id']
+    
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json'
+    }
+    
+    # Query the database for pages with matching conventional name
+    query_data = {
+        "filter": {
+            "property": "Conventional Name",
+            "rich_text": {
+                "equals": conventional_name
+            }
+        }
+    }
+    
+    try:
+        response = requests.post(f'https://api.notion.com/v1/databases/{database_id}/query', 
+                               headers=headers, json=query_data)
+        
+        if response.status_code == 200:
+            results = response.json().get('results', [])
+            return len(results) > 0
+        else:
+            print(f"Warning: Error querying Notion database: {response.status_code}")
+            return False
+    
+    except Exception as e:
+        print(f"Warning: Error checking Notion database: {e}")
+        return False

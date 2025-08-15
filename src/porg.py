@@ -5,7 +5,7 @@ import urllib.request
 import urllib.parse
 from pathlib import Path
 from src.notion import setup_notion, add_paper
-from src.papers import add_paper_complete
+from src.papers import add_paper_complete, sync_papers
 
 
 def download_paper(url: str, filename: str = None) -> None:
@@ -51,6 +51,9 @@ def main():
     add_parser = subparsers.add_parser('add', help='Add paper (metadata + download + Notion)')
     add_parser.add_argument('url', help='URL of the paper to add')
     
+    # Sync command (top-level)
+    sync_parser = subparsers.add_parser('sync', help='Sync papers from config to downloads and Notion')
+    
     # Download command
     download_parser = subparsers.add_parser('download', help='Download a research paper')
     download_parser.add_argument("--url", required=True, help="URL of the paper to download")
@@ -67,6 +70,8 @@ def main():
     
     if args.command == "add":
         add_paper_complete(args.url)
+    elif args.command == "sync":
+        sync_papers()
     elif args.command == "download":
         download_paper(args.url, args.file)
     elif args.command == "notion":
