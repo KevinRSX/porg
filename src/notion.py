@@ -4,22 +4,35 @@ from pathlib import Path
 import requests
 
 
-def get_config_path() -> Path:
-    return Path.home() / ".porg_config.json"
+def get_config_dir() -> Path:
+    return Path.home() / ".porg"
 
 
-def load_config() -> dict:
-    config_path = get_config_path()
-    if config_path.exists():
-        with open(config_path, 'r') as f:
+def get_notion_config_path() -> Path:
+    return get_config_dir() / "notion.json"
+
+
+def ensure_config_dir() -> None:
+    """Ensure the config directory exists."""
+    config_dir = get_config_dir()
+    config_dir.mkdir(exist_ok=True)
+
+
+def load_notion_config() -> dict:
+    """Load Notion-specific configuration."""
+    notion_config_path = get_notion_config_path()
+    if notion_config_path.exists():
+        with open(notion_config_path, 'r') as f:
             return json.load(f)
     return {}
 
 
-def save_config(config: dict) -> None:
-    config_path = get_config_path()
-    with open(config_path, 'w') as f:
-        json.dump(config, f, indent=2)
+def save_notion_config(notion_config: dict) -> None:
+    """Save Notion-specific configuration."""
+    ensure_config_dir()
+    notion_config_path = get_notion_config_path()
+    with open(notion_config_path, 'w') as f:
+        json.dump(notion_config, f, indent=2)
 
 
 def inspect_database(token: str, database_id: str) -> dict:
@@ -106,11 +119,17 @@ def setup_notion() -> None:
     print("Setting up Notion integration...")
     
     # Check for existing configuration
-    config = load_config()
-    existing_notion = config.get('notion', {})
+    existing_notion = load_notion_config()
     existing_token = existing_notion.get('token')
     existing_db_id = existing_notion.get('database_id')
-    config_path = get_config_path()
+    notion_config_path = get_notion_config_path()
+    
+    # Security warning
+    print("\n⚠️  SECURITY WARNING:")
+    print("Your Notion integration token will be stored in plain text on your computer.")
+    print(f"Location: {notion_config_path}")
+    print("Make sure your computer is secure and consider the risks.")
+    print("You can delete the config file anytime to remove stored tokens.")
     
     if not existing_token:
         print("\nTo connect to Notion, you need to:")
@@ -128,7 +147,7 @@ def setup_notion() -> None:
     
     # Token input with default handling
     if existing_token:
-        token_prompt = f"\nYour Notion integration token (default token stored at {config_path}): "
+        token_prompt = f"\nYour Notion integration token (default token stored at {notion_config_path}): "
     else:
         token_prompt = "\nPaste your Notion integration token: "
     
@@ -151,7 +170,7 @@ def setup_notion() -> None:
     
     # Database ID input with default handling
     if existing_db_id:
-        db_prompt = f"\nYour database ID (default database stored at {config_path}): "
+        db_prompt = f"\nYour database ID (default database stored at {notion_config_path}): "
     else:
         db_prompt = "\nEnter your database ID (from the database URL): "
     
@@ -190,14 +209,14 @@ def setup_notion() -> None:
         return
     
     # Save configuration
-    config['notion'] = {
+    notion_config = {
         'token': token,
         'database_id': database_id.split('?')[0]  # Clean database ID
     }
-    save_config(config)
+    save_notion_config(notion_config)
     
     print("✅ Notion integration configured successfully!")
-    print(f"Configuration saved to: {get_config_path()}")
+    print(f"Configuration saved to: {get_notion_config_path()}")
 
 
 def get_database_properties(token: str, database_id: str) -> dict:
@@ -284,8 +303,7 @@ def prompt_for_status(prop_name: str, options: list) -> dict:
 
 def add_paper(paper_name: str, paper_url: str = None) -> None:
     """Add a paper to the Notion database."""
-    config = load_config()
-    notion_config = config.get('notion')
+    notion_config = load_notion_config()
     
     if not notion_config:
         print("❌ Notion not configured. Run 'porg notion --setup' first.")

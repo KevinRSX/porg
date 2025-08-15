@@ -5,6 +5,7 @@ import urllib.request
 import urllib.parse
 from pathlib import Path
 from src.notion import setup_notion, add_paper
+from src.papers import add_paper_complete
 
 
 def download_paper(url: str, filename: str = None) -> None:
@@ -46,6 +47,10 @@ def main():
     parser = argparse.ArgumentParser(description="Download and organize research papers")
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     
+    # Add command (top-level)
+    add_parser = subparsers.add_parser('add', help='Add paper (metadata + download + Notion)')
+    add_parser.add_argument('url', help='URL of the paper to add')
+    
     # Download command
     download_parser = subparsers.add_parser('download', help='Download a research paper')
     download_parser.add_argument("--url", required=True, help="URL of the paper to download")
@@ -60,7 +65,9 @@ def main():
     
     args = parser.parse_args()
     
-    if args.command == "download":
+    if args.command == "add":
+        add_paper_complete(args.url)
+    elif args.command == "download":
         download_paper(args.url, args.file)
     elif args.command == "notion":
         if args.setup:
