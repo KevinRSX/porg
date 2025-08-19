@@ -31,6 +31,7 @@ def load_config() -> Dict:
     return {
         "download_dir": "~/Desktop/quick_reads",
         "archive_dir": "~/Desktop/Readings/Papers/General",
+        "archive_read_dir": "~/Desktop/Readings/Papers",
     }
 
 
@@ -41,9 +42,30 @@ def get_download_dir() -> Path:
 
 
 def get_archive_dir() -> Path:
-    """Get the configured archive directory."""
+    """Get the configured archive directory (for writing)."""
     config = load_config()
     return Path(config["archive_dir"]).expanduser()
+
+
+def get_archive_read_dir() -> Path:
+    """Get the configured archive read directory (for reading recursively)."""
+    config = load_config()
+    return Path(config["archive_read_dir"]).expanduser()
+
+
+def find_paper_in_archive(filename: str) -> Path:
+    """Recursively search for a paper in the archive read directory.
+    
+    Returns the full path if found, None otherwise.
+    """
+    archive_read_dir = get_archive_read_dir()
+    
+    # Use glob to recursively search for the file
+    matches = list(archive_read_dir.glob(f"**/{filename}"))
+    
+    if matches:
+        return matches[0]  # Return first match
+    return None
 
 
 def ensure_config_dir() -> None:
@@ -284,15 +306,19 @@ def sync_papers() -> None:
 
         print(f"\nChecking: {conventional_name}")
 
-        # Check if file exists
+        # Check if file exists in download_dir or archive (recursively)
         filename = f"{conventional_name}.pdf"
-        filepath = download_dir / filename
+        download_path = download_dir / filename
+        archive_path = find_paper_in_archive(filename)
 
-        if not filepath.exists():
+        if not download_path.exists() and not archive_path:
             missing_downloads.append(paper)
             print("   Missing download")
         else:
-            print(f"   {SUCCESS} File exists")
+            if download_path.exists():
+                print(f"   {SUCCESS} File exists in download_dir")
+            else:
+                print(f"   {SUCCESS} File exists in archive ({archive_path})")
 
         # Check if Notion entry exists
         if not check_paper_exists_in_notion(conventional_name):
@@ -404,15 +430,15 @@ def open_paper(codename: str) -> None:
     filename = f"{conventional_name}.pdf"
 
     download_dir = get_download_dir()
-    archive_dir = get_archive_dir()
+    archive_read_dir = get_archive_read_dir()
 
     download_path = download_dir / filename
-    archive_path = archive_dir / filename
+    archive_path = find_paper_in_archive(filename)
 
     # Check if file exists in download_dir (cache)
     if download_path.exists():
         print(f"Opening from cache: {download_path}")
-    elif archive_path.exists():
+    elif archive_path:
         # Copy from archive to download_dir
         print(f"Copying from archive to cache: {conventional_name}")
         download_dir.mkdir(parents=True, exist_ok=True)
@@ -421,10 +447,10 @@ def open_paper(codename: str) -> None:
     else:
         print(
             f"Paper '{conventional_name}.pdf' not found in either "
-            f"download_dir or archive_dir"
+            f"download_dir or archive"
         )
         print(f"   Download dir: {download_dir}")
-        print(f"   Archive dir: {archive_dir}")
+        print(f"   Archive search dir: {archive_read_dir}")
         return
 
     # Open the file

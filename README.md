@@ -21,6 +21,41 @@ You need a [Notion](https://www.notion.so/) account. Create a Notion database pa
 porg notion --setup
 ```
 
+## Configuration
+
+Porg uses a flexible directory structure that separates active reading from long-term storage:
+
+### Directory Structure
+
+```yaml
+# ~/.porg/config.yaml
+download_dir: "~/Desktop/quick_reads"                    # Active reading cache
+archive_dir: "~/Desktop/Readings/Papers/General"        # Long-term storage (write)
+archive_read_dir: "~/Desktop/Readings/Papers"           # Long-term storage (read)
+```
+
+**How it works:**
+- **`download_dir`**: Your active reading cache where papers are temporarily stored for quick access
+- **`archive_dir`**: Where papers are permanently stored when using `porg flush` 
+- **`archive_read_dir`**: The root directory for recursive paper searches
+
+### Manual Organization Support
+
+You can manually organize papers into subdirectories like:
+```
+~/Desktop/Readings/Papers/
+├── General/           # Default archive location
+├── CSE585/           # Course-specific papers
+├── Research/         # Research project papers
+└── Conferences/      # Conference proceedings
+```
+
+**Benefits:**
+- `porg sync` and `porg open` will find papers in any subdirectory
+- `porg flush` always writes to the consistent `General/` directory
+- You maintain full control over paper organization
+- No need to update configuration when creating new subdirectories
+
 ## Usage
 Basic usage:
 ```bash
