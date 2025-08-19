@@ -36,7 +36,7 @@ include = ["src*"]
 porg = "src.porg:main"
 
 [tool.ruff]
-select = [
+lint.select = [
     "E",    # pycodestyle (PEP 8)
     "F",    # Pyflakes (unused imports, undefined names)
     "B",    # flake8-bugbear (likely bugs, bad patterns)
@@ -46,7 +46,7 @@ select = [
     "ANN",  # flake8-annotations (type annotations)
     # "I",  # Do not enforce isort rules
 ]
-ignore = [
+lint.ignore = [
     "E731",    # Allow lambda assignments (can be handy in research code)
     "B007",    # Allow unused loop variables (e.g., for i, _ in enumerate(...))
     "UP032",   # Allow f-string formatting patterns Ruff flags
