@@ -11,7 +11,7 @@ First, install the project:
 pip install .
 ```
 
-You may also do an editable install if you want to customize the source file:
+Install in editable mode if you want to customize the source file:
 ```bash
 pip install -e .
 ```
@@ -21,9 +21,9 @@ You need a [Notion](https://www.notion.so/) account. Create a Notion database pa
 porg notion --setup
 ```
 
-## Configuration
+## File Organization
 
-Porg uses a flexible directory structure that separates active reading from long-term storage:
+porg uses a flexible directory structure that separates active reading from long-term storage:
 
 ### Directory Structure
 
@@ -71,15 +71,18 @@ This will:
 
 `porg add` will do everything at once, but each component is also exposed to the CLI:
 ```
-usage: porg [-h] {add,sync,download,notion} ...
+usage: porg [-h] {add,sync,open,flush,get,download,notion} ...
 
 Download and organize research papers
 
 positional arguments:
-  {add,sync,download,notion}
+  {add,sync,open,flush,get,download,notion}
                         Available commands
     add                 Add paper (metadata + download + Notion)
     sync                Sync papers from config to downloads and Notion
+    open                Open a paper by codename
+    flush               Flush papers from download_dir to archive_dir
+    get                 Query paper information from Notion
     download            Download a research paper
     notion              Notion integration commands
 
@@ -87,19 +90,19 @@ optional arguments:
   -h, --help            show this help message and exit
 ```
 
+You can use `porg <command> -h|--help` to understand how to run each of the commands.
+
 ## Configuration Files
 porg stores configuration and metadata in `~/.porg/`:
+- `config.yaml` - Directories for quick read and long term storage locations
 - `notion.json` - Notion integration tokens and database settings
 - `papers.json` - Local paper metadata and naming information
 
 
-## Project Roadmap
-- [x] **Formalized Download Location** - Create a configurable and structured approach to paper storage locations, with support for custom directory hierarchies and organization schemes
-- [ ] **Zotero Integration** - Add comprehensive support for Zotero reference manager, including import/export functionality and synchronization with existing Zotero libraries
-- [ ] **Paper notes** - Support connecting the paper to paper notes written externally
-- [x] **Queries** - Allow users to query the paper store by project or topic
-- [ ] **Full Paper Titles** - Add support for storing and displaying full paper titles separately from codenames, allowing display format like "Full Paper Title [Codename] (Conference)" for better readability
+## Roadmap
+- **Zotero Integration** - Add comprehensive support for Zotero reference manager, including import/export functionality and synchronization with existing Zotero libraries
+- **Paper notes** - Support connecting the paper to paper notes written externally
+- **Full paper titles** - Add support for storing and displaying full paper titles separately from codenames, allowing display format like "Full Paper Title [Codename] (Conference)" for better readability
 
 ### License
-
 MIT License - see LICENSE file for details.
