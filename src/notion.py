@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 import requests
 
+from src.icons import SUCCESS, ERROR, WARNING
+
 
 def get_config_dir() -> Path:
     return Path.home() / ".porg"
@@ -86,7 +88,7 @@ def validate_database_properties(db_info: dict) -> bool:
                 )
 
     if missing_props or invalid_types:
-        print("ERROR Database validation failed!")
+        print(f"{ERROR} Database validation failed!")
         if missing_props:
             print(f"Missing properties: {', '.join(missing_props)}")
         if invalid_types:
@@ -131,7 +133,7 @@ def setup_notion() -> None:
     notion_config_path = get_notion_config_path()
 
     # Security warning
-    print("\nWARNING: SECURITY WARNING:")
+    print(f"\n{WARNING} SECURITY WARNING:")
     print(
         "Your Notion integration token will be stored in plain text on your computer."
     )
@@ -223,13 +225,13 @@ def setup_notion() -> None:
 
         # Validate database structure
         if not validate_database_properties(db_info):
-            print("\nERROR Please fix your database structure and try again.")
+            print(f"\n{ERROR} Please fix your database structure and try again.")
             return
 
-        print("\nOK Database validation passed!")
+        print(f"\n{SUCCESS} Database validation passed!")
 
     except Exception as e:
-        print(f"ERROR Error inspecting database: {e}")
+        print(f"{ERROR} Error inspecting database: {e}")
         return
 
     # Save configuration
@@ -239,7 +241,7 @@ def setup_notion() -> None:
     }
     save_notion_config(notion_config)
 
-    print("OK Notion integration configured successfully!")
+    print(f"{SUCCESS} Notion integration configured successfully!")
     print(f"Configuration saved to: {get_notion_config_path()}")
 
 
@@ -249,7 +251,7 @@ def get_database_properties(token: str, database_id: str) -> dict:
         db_info = inspect_database(token, database_id)
         return db_info.get("properties", {})
     except Exception as e:
-        print(f"ERROR Error getting database properties: {e}")
+        print(f"{ERROR} Error getting database properties: {e}")
         return {}
 
 
@@ -337,7 +339,7 @@ def add_paper(
     notion_config = load_notion_config()
 
     if not notion_config:
-        print("ERROR Notion not configured. Run 'porg notion --setup' first.")
+        print(f"{ERROR} Notion not configured. Run 'porg notion --setup' first.")
         return
 
     token = notion_config["token"]
@@ -470,13 +472,13 @@ def add_paper(
         )
 
         if response.status_code == 200:
-            print(f"OK Successfully added paper '{paper_name}' to Notion!")
+            print(f"{SUCCESS} Successfully added paper '{paper_name}' to Notion!")
         else:
-            print(f"ERROR Error adding paper: {response.status_code}")
+            print(f"{ERROR} Error adding paper: {response.status_code}")
             print(f"Response: {response.text}")
 
     except Exception as e:
-        print(f"ERROR Error creating page: {e}")
+        print(f"{ERROR} Error creating page: {e}")
 
 
 def check_paper_exists_in_notion(conventional_name: str) -> bool:
@@ -528,7 +530,7 @@ def get_paper_by_name(codename: str) -> dict:
 
     notion_config = load_notion_config()
     if not notion_config:
-        print("ERROR Notion not configured. Run 'porg notion --setup' first.")
+        print(f"{ERROR} Notion not configured. Run 'porg notion --setup' first.")
         return None
 
     # Find paper metadata first
@@ -575,16 +577,16 @@ def get_paper_by_name(codename: str) -> dict:
             if results:
                 return results[0]  # Return first match
             else:
-                print(f"ERROR Paper '{codename}' not found in Notion database.")
+                print(f"{ERROR} Paper '{codename}' not found in Notion database.")
                 return None
         else:
             print(
-                f"ERROR Error querying Notion: {response.status_code} - {response.text}"
+                f"{ERROR} Error querying Notion: {response.status_code} - {response.text}"
             )
             return None
 
     except Exception as e:
-        print(f"ERROR Error querying Notion: {e}")
+        print(f"{ERROR} Error querying Notion: {e}")
         return None
 
 
@@ -592,7 +594,7 @@ def get_papers_by_project(project_name: str) -> list:
     """Get papers from Notion by project name."""
     notion_config = load_notion_config()
     if not notion_config:
-        print("ERROR Notion not configured. Run 'porg notion --setup' first.")
+        print(f"{ERROR} Notion not configured. Run 'porg notion --setup' first.")
         return []
 
     token = notion_config["token"]
@@ -623,12 +625,12 @@ def get_papers_by_project(project_name: str) -> list:
             return results
         else:
             print(
-                f"ERROR Error querying Notion: {response.status_code} - {response.text}"
+                f"{ERROR} Error querying Notion: {response.status_code} - {response.text}"
             )
             return []
 
     except Exception as e:
-        print(f"ERROR Error querying Notion: {e}")
+        print(f"{ERROR} Error querying Notion: {e}")
         return []
 
 
@@ -636,7 +638,7 @@ def get_papers_by_topic(topic_name: str) -> list:
     """Get papers from Notion by topic name."""
     notion_config = load_notion_config()
     if not notion_config:
-        print("ERROR Notion not configured. Run 'porg notion --setup' first.")
+        print(f"{ERROR} Notion not configured. Run 'porg notion --setup' first.")
         return []
 
     token = notion_config["token"]
@@ -664,12 +666,12 @@ def get_papers_by_topic(topic_name: str) -> list:
             return results
         else:
             print(
-                f"ERROR Error querying Notion: {response.status_code} - {response.text}"
+                f"{ERROR} Error querying Notion: {response.status_code} - {response.text}"
             )
             return []
 
     except Exception as e:
-        print(f"ERROR Error querying Notion: {e}")
+        print(f"{ERROR} Error querying Notion: {e}")
         return []
 
 
@@ -755,7 +757,7 @@ def get_all_papers() -> list:
     """Get all papers from Notion database."""
     notion_config = load_notion_config()
     if not notion_config:
-        print("ERROR Notion not configured. Run 'porg notion --setup' first.")
+        print(f"{ERROR} Notion not configured. Run 'porg notion --setup' first.")
         return []
 
     token = notion_config["token"]
@@ -782,10 +784,10 @@ def get_all_papers() -> list:
             return results
         else:
             print(
-                f"ERROR Error querying Notion: {response.status_code} - {response.text}"
+                f"{ERROR} Error querying Notion: {response.status_code} - {response.text}"
             )
             return []
 
     except Exception as e:
-        print(f"ERROR Error querying Notion: {e}")
+        print(f"{ERROR} Error querying Notion: {e}")
         return []

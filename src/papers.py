@@ -4,6 +4,8 @@ import yaml
 from pathlib import Path
 from typing import Dict, List
 
+from src.icons import SUCCESS, ERROR, WARNING
+
 
 def get_config_dir() -> Path:
     """Get the porg configuration directory."""
@@ -146,7 +148,7 @@ def save_paper_metadata(paper_metadata: dict) -> bool:
             break
 
     if existing_paper:
-        print("\nWARNING: Paper already exists:")
+        print(f"\n{WARNING} Paper already exists:")
         print(f"   Codename: {existing_paper['codename']}")
         print(f"   Conventional name: {existing_paper['conventional_name']}")
         print(f"   Conference: {existing_paper['conference']}")
@@ -161,11 +163,11 @@ def save_paper_metadata(paper_metadata: dict) -> bool:
             p for p in papers_data["papers"] if p != existing_paper
         ]
         papers_data["papers"].append(paper_metadata)
-        print("OK Paper metadata updated!")
+        print(f"{SUCCESS} Paper metadata updated!")
     else:
         # Add new paper
         papers_data["papers"].append(paper_metadata)
-        print("OK Paper metadata added!")
+        print(f"{SUCCESS} Paper metadata added!")
 
     # Save to file
     save_papers_metadata(papers_data)
@@ -212,11 +214,11 @@ def add_paper_complete(url: str) -> None:
         try:
             print(f"Downloading to: {filepath}")
             urllib.request.urlretrieve(url, filepath)
-            print(f"OK Successfully downloaded: {filepath}")
+            print(f"{SUCCESS} Successfully downloaded: {filepath}")
             download_successful = True
         except Exception as e:
-            print(f"ERROR Error downloading paper: {e}")
-            print("WARNING: Download failed, but continuing with Notion integration...")
+            print(f"{ERROR} Error downloading paper: {e}")
+            print(f"{WARNING} Download failed, but continuing with Notion integration...")
 
     # Step 3: Add to Notion
     print("\nAdding to Notion...")
@@ -225,17 +227,17 @@ def add_paper_complete(url: str) -> None:
         add_paper(notion_title, url, paper_metadata["conventional_name"])
         notion_successful = True
     except Exception as e:
-        print(f"ERROR Error adding to Notion: {e}")
+        print(f"{ERROR} Error adding to Notion: {e}")
         notion_successful = False
 
     # Final status summary
     print("\nProcess Summary:")
-    print("   OK Metadata saved: Yes")
+    print(f"   {SUCCESS} Metadata saved: Yes")
     download_status = "Success" if download_successful else "Failed"
-    download_icon = "OK" if download_successful else "ERROR"
+    download_icon = SUCCESS if download_successful else ERROR
     print(f"   {download_icon} Download: {download_status}")
     notion_status = "Success" if notion_successful else "Failed"
-    notion_icon = "OK" if notion_successful else "ERROR"
+    notion_icon = SUCCESS if notion_successful else ERROR
     print(f"   {notion_icon} Notion integration: {notion_status}")
 
     if not download_successful:
@@ -290,14 +292,14 @@ def sync_papers() -> None:
             missing_downloads.append(paper)
             print("   Missing download")
         else:
-            print("   OK File exists")
+            print(f"   {SUCCESS} File exists")
 
         # Check if Notion entry exists
         if not check_paper_exists_in_notion(conventional_name):
             missing_notion.append(paper)
             print("   Missing Notion entry")
         else:
-            print("   OK Notion entry exists")
+            print(f"   {SUCCESS} Notion entry exists")
 
     # Summary of what needs to be synced
     print("\nSync Summary:")
@@ -305,7 +307,7 @@ def sync_papers() -> None:
     print(f"   Missing Notion entries: {len(missing_notion)}")
 
     if not missing_downloads and not missing_notion:
-        print("\nSuccess Everything is already in sync!")
+        print(f"\n{SUCCESS} Everything is already in sync!")
         return
 
     # Download missing files
@@ -320,9 +322,9 @@ def sync_papers() -> None:
             try:
                 print(f"   Downloading {conventional_name}...")
                 urllib.request.urlretrieve(url, filepath)
-                print(f"   OK Downloaded: {filename}")
+                print(f"   {SUCCESS} Downloaded: {filename}")
             except Exception as e:
-                print(f"   ERROR Failed to download {conventional_name}: {e}")
+                print(f"   {ERROR} Failed to download {conventional_name}: {e}")
                 download_failures.append(paper)
 
     # Add missing Notion entries
@@ -339,27 +341,27 @@ def sync_papers() -> None:
             try:
                 print(f"   Adding to Notion: {conventional_name}")
                 add_paper(notion_title, url, conventional_name)
-                print(f"   OK Added to Notion: {notion_title}")
+                print(f"   {SUCCESS} Added to Notion: {notion_title}")
             except Exception as e:
-                print(f"   ERROR Failed to add {conventional_name} to Notion: {e}")
+                print(f"   {ERROR} Failed to add {conventional_name} to Notion: {e}")
                 notion_failures.append(paper)
 
     # Final summary
     print("\nSync Results:")
     print(
-        f"   OK Downloads completed: {len(missing_downloads) - len(download_failures)}"
+        f"   {SUCCESS} Downloads completed: {len(missing_downloads) - len(download_failures)}"
     )
-    print(f"   ERROR Download failures: {len(download_failures)}")
-    print(f"   OK Notion entries added: {len(missing_notion) - len(notion_failures)}")
-    print(f"   ERROR Notion failures: {len(notion_failures)}")
+    print(f"   {ERROR} Download failures: {len(download_failures)}")
+    print(f"   {SUCCESS} Notion entries added: {len(missing_notion) - len(notion_failures)}")
+    print(f"   {ERROR} Notion failures: {len(notion_failures)}")
 
     if download_failures:
-        print("\nWARNING: Download failures:")
+        print(f"\n{WARNING} Download failures:")
         for paper in download_failures:
             print(f"   - {paper['conventional_name']}: {paper['url']}")
 
     if notion_failures:
-        print("\nWARNING: Notion failures:")
+        print(f"\n{WARNING} Notion failures:")
         for paper in notion_failures:
             print(f"   - {paper['conventional_name']}")
 
@@ -415,7 +417,7 @@ def open_paper(codename: str) -> None:
         print(f"Copying from archive to cache: {conventional_name}")
         download_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(archive_path, download_path)
-        print(f"OK Copied to: {download_path}")
+        print(f"{SUCCESS} Copied to: {download_path}")
     else:
         print(
             f"Paper '{conventional_name}.pdf' not found in either "
@@ -429,11 +431,11 @@ def open_paper(codename: str) -> None:
     try:
         print(f"Opening: {download_path}")
         subprocess.run(["open", str(download_path)], check=True)
-        print(f"OK Opened: {conventional_name}")
+        print(f"{SUCCESS} Opened: {conventional_name}")
     except subprocess.CalledProcessError as e:
-        print(f"ERROR Failed to open file: {e}")
+        print(f"{ERROR} Failed to open file: {e}")
     except FileNotFoundError:
-        print("ERROR 'open' command not found. Are you on macOS?")
+        print(f"{ERROR} 'open' command not found. Are you on macOS?")
 
 
 def flush_papers(codenames: List[str]) -> None:
@@ -452,7 +454,7 @@ def flush_papers(codenames: List[str]) -> None:
         # Find paper metadata
         paper = find_paper_by_codename(codename)
         if not paper:
-            print(f"ERROR Paper '{codename}' not found in metadata")
+            print(f"{ERROR} Paper '{codename}' not found in metadata")
             failed_flushes.append(codename)
             continue
 
@@ -475,7 +477,7 @@ def flush_papers(codenames: List[str]) -> None:
             # Copy to archive_dir
             print(f"Flushing {conventional_name} to archive...")
             shutil.copy2(download_path, archive_path)
-            print(f"   OK Copied to: {archive_path}")
+            print(f"   {SUCCESS} Copied to: {archive_path}")
 
             # Remove from download_dir
             subprocess.run(["rm", str(download_path)], check=True)
@@ -484,13 +486,13 @@ def flush_papers(codenames: List[str]) -> None:
             successful_flushes.append(conventional_name)
 
         except Exception as e:
-            print(f"ERROR Failed to flush {conventional_name}: {e}")
+            print(f"{ERROR} Failed to flush {conventional_name}: {e}")
             failed_flushes.append(codename)
 
     # Summary
     print("\nFlush Summary:")
-    print(f"   OK Successfully flushed: {len(successful_flushes)}")
-    print(f"   ERROR Failed: {len(failed_flushes)}")
+    print(f"   {SUCCESS} Successfully flushed: {len(successful_flushes)}")
+    print(f"   {ERROR} Failed: {len(failed_flushes)}")
 
     if successful_flushes:
         print(f"   Flushed papers: {', '.join(successful_flushes)}")
