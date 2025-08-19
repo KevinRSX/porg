@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import json
+import yaml
 from pathlib import Path
 from typing import Dict, List
 
@@ -12,6 +13,35 @@ def get_config_dir() -> Path:
 def get_papers_config_path() -> Path:
     """Get the path to papers metadata file."""
     return get_config_dir() / "papers.json"
+
+
+def get_config_path() -> Path:
+    """Get the path to main config file."""
+    return get_config_dir() / "config.yaml"
+
+
+def load_config() -> Dict:
+    """Load configuration from config.yaml."""
+    config_path = get_config_path()
+    if config_path.exists():
+        with open(config_path, 'r') as f:
+            return yaml.safe_load(f)
+    return {
+        "download_dir": "~/Desktop/quick_reads",
+        "archive_dir": "~/Desktop/Readings/Papers/General"
+    }
+
+
+def get_download_dir() -> Path:
+    """Get the configured download directory."""
+    config = load_config()
+    return Path(config["download_dir"]).expanduser()
+
+
+def get_archive_dir() -> Path:
+    """Get the configured archive directory."""
+    config = load_config()
+    return Path(config["archive_dir"]).expanduser()
 
 
 def ensure_config_dir() -> None:
@@ -160,8 +190,8 @@ def add_paper_complete(url: str) -> None:
     
     # Step 2: Download paper
     print(f"\n📥 Downloading paper...")
-    download_dir = Path.home() / "Desktop/quick_reads"
-    download_dir.mkdir(exist_ok=True)
+    download_dir = get_download_dir()
+    download_dir.mkdir(parents=True, exist_ok=True)
     
     filename = f"{paper_metadata['conventional_name']}.pdf"
     filepath = download_dir / filename
@@ -222,8 +252,8 @@ def sync_papers() -> None:
     print(f"📋 Found {len(papers)} papers in configuration")
     
     # Set up paths
-    download_dir = Path.home() / "Desktop/quick_reads"
-    download_dir.mkdir(exist_ok=True)
+    download_dir = get_download_dir()
+    download_dir.mkdir(parents=True, exist_ok=True)
     
     # Track sync progress
     missing_downloads = []
@@ -321,5 +351,177 @@ def sync_papers() -> None:
     
     if not download_failures and not notion_failures:
         print(f"\n🎉 Sync completed successfully!")
+
+
+def find_paper_by_codename(codename: str) -> dict:
+    """Find a paper by codename (case insensitive). Returns paper metadata dict or None."""
+    papers_data = load_papers_metadata()
+    papers = papers_data.get('papers', [])
+    
+    for paper in papers:
+        if paper['codename'].lower() == codename.lower():
+            return paper
+    
+    return None
+
+
+def open_paper(codename: str) -> None:
+    """Open a paper by codename. Check download_dir first, copy from archive_dir if needed."""
+    import subprocess
+    import shutil
+    
+    # Find paper metadata
+    paper = find_paper_by_codename(codename)
+    if not paper:
+        print(f"❌ Paper '{codename}' not found in metadata. Use 'porg add' to add it first.")
+        return
+    
+    conventional_name = paper['conventional_name']
+    filename = f"{conventional_name}.pdf"
+    
+    download_dir = get_download_dir()
+    archive_dir = get_archive_dir()
+    
+    download_path = download_dir / filename
+    archive_path = archive_dir / filename
+    
+    # Check if file exists in download_dir (cache)
+    if download_path.exists():
+        print(f"📂 Opening from cache: {download_path}")
+    elif archive_path.exists():
+        # Copy from archive to download_dir
+        print(f"📥 Copying from archive to cache: {conventional_name}")
+        download_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(archive_path, download_path)
+        print(f"✅ Copied to: {download_path}")
+    else:
+        print(f"❌ Paper '{conventional_name}.pdf' not found in either download_dir or archive_dir")
+        print(f"   Download dir: {download_dir}")
+        print(f"   Archive dir: {archive_dir}")
+        return
+    
+    # Open the file
+    try:
+        print(f"🔍 Opening: {download_path}")
+        subprocess.run(['open', str(download_path)], check=True)
+        print(f"✅ Opened: {conventional_name}")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed to open file: {e}")
+    except FileNotFoundError:
+        print(f"❌ 'open' command not found. Are you on macOS?")
+
+
+def flush_papers(codenames: List[str]) -> None:
+    """Flush papers from download_dir to archive_dir, then remove from download_dir."""
+    import subprocess
+    import shutil
+    
+    download_dir = get_download_dir()
+    archive_dir = get_archive_dir()
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    
+    successful_flushes = []
+    failed_flushes = []
+    
+    for codename in codenames:
+        # Find paper metadata
+        paper = find_paper_by_codename(codename)
+        if not paper:
+            print(f"❌ Paper '{codename}' not found in metadata")
+            failed_flushes.append(codename)
+            continue
+        
+        conventional_name = paper['conventional_name']
+        filename = f"{conventional_name}.pdf"
+        
+        download_path = download_dir / filename
+        archive_path = archive_dir / filename
+        
+        # Check if file exists in download_dir
+        if not download_path.exists():
+            print(f"❌ Paper '{conventional_name}' not found in download_dir: {download_path}")
+            failed_flushes.append(codename)
+            continue
+        
+        try:
+            # Copy to archive_dir
+            print(f"📤 Flushing {conventional_name} to archive...")
+            shutil.copy2(download_path, archive_path)
+            print(f"   ✅ Copied to: {archive_path}")
+            
+            # Remove from download_dir
+            subprocess.run(['rm', str(download_path)], check=True)
+            print(f"   🗑️  Removed from cache: {download_path}")
+            
+            successful_flushes.append(conventional_name)
+            
+        except Exception as e:
+            print(f"❌ Failed to flush {conventional_name}: {e}")
+            failed_flushes.append(codename)
+    
+    # Summary
+    print(f"\n📊 Flush Summary:")
+    print(f"   ✅ Successfully flushed: {len(successful_flushes)}")
+    print(f"   ❌ Failed: {len(failed_flushes)}")
+    
+    if successful_flushes:
+        print(f"   Flushed papers: {', '.join(successful_flushes)}")
+    
+    if failed_flushes:
+        print(f"   Failed papers: {', '.join(failed_flushes)}")
+
+
+def get_paper_info(codename: str) -> None:
+    """Get and display paper information from Notion by codename."""
+    from src.notion import get_paper_by_name, format_paper_info
+    
+    paper_data = get_paper_by_name(codename)
+    if paper_data:
+        format_paper_info(paper_data)
+
+
+def get_papers_by_project_filter(project_name: str) -> None:
+    """Get and display papers filtered by project name."""
+    from src.notion import get_papers_by_project, format_paper_list
+    
+    papers = get_papers_by_project(project_name)
+    if papers:
+        print(f"Papers in project '{project_name}':")
+        print("=" * 40)
+        format_paper_list(papers)
+    else:
+        print(f"No papers found for project '{project_name}'.")
+
+
+def get_papers_by_topic_filter(topic_name: str) -> None:
+    """Get and display papers filtered by topic name."""
+    from src.notion import get_papers_by_topic, format_paper_list
+    
+    papers = get_papers_by_topic(topic_name)
+    if papers:
+        print(f"Papers with topic '{topic_name}':")
+        print("=" * 40)
+        format_paper_list(papers)
+    else:
+        print(f"No papers found for topic '{topic_name}'.")
+
+
+def get_all_papers_list() -> None:
+    """Get and display all papers from local papers.json metadata."""
+    papers_data = load_papers_metadata()
+    papers = papers_data.get('papers', [])
+    
+    if not papers:
+        print("No papers found in local metadata.")
+        print("Use 'porg add <url>' to add papers.")
+        return
+    
+    print(f"Found {len(papers)} paper(s):")
+    print("-" * 30)
+    
+    for paper in papers:
+        codename = paper.get('codename', 'Unknown')
+        conference = paper.get('conference', 'Unknown')
+        print(f"• {codename} ({conference})")
 
 

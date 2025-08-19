@@ -59,10 +59,11 @@ porg stores configuration and metadata in `~/.porg/`:
 
 
 ## Project Roadmap
-- [ ] **Formalized Download Location** - Create a configurable and structured approach to paper storage locations, with support for custom directory hierarchies and organization schemes
+- [x] **Formalized Download Location** - Create a configurable and structured approach to paper storage locations, with support for custom directory hierarchies and organization schemes
 - [ ] **Zotero Integration** - Add comprehensive support for Zotero reference manager, including import/export functionality and synchronization with existing Zotero libraries
 - [ ] **Paper notes** - Support connecting the paper to paper notes written externally
-- [ ] **Queries** - Allow users to query the paper store by project or topic
+- [x] **Queries** - Allow users to query the paper store by project or topic
+- [ ] **Full Paper Titles** - Add support for storing and displaying full paper titles separately from codenames, allowing display format like "Full Paper Title [Codename] (Conference)" for better readability
 
 ### License
 

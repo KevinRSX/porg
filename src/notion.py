@@ -514,3 +514,257 @@ def check_paper_exists_in_notion(conventional_name: str) -> bool:
     except Exception as e:
         print(f"Warning: Error checking Notion database: {e}")
         return False
+
+
+def get_paper_by_name(codename: str) -> dict:
+    """Get paper information from Notion by codename."""
+    from src.papers import find_paper_by_codename
+    
+    notion_config = load_notion_config()
+    if not notion_config:
+        print("❌ Notion not configured. Run 'porg notion --setup' first.")
+        return None
+    
+    # Find paper metadata first
+    paper = find_paper_by_codename(codename)
+    if not paper:
+        print(f"❌ Paper '{codename}' not found in metadata. Use 'porg add' to add it first.")
+        return None
+    
+    token = notion_config['token']
+    database_id = notion_config['database_id']
+    
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json'
+    }
+    
+    # Query by conventional name if available, otherwise by title
+    conventional_name = paper.get('conventional_name')
+    if conventional_name:
+        query_data = {
+            "filter": {
+                "property": "Conventional Name",
+                "rich_text": {
+                    "equals": conventional_name
+                }
+            }
+        }
+    else:
+        # Fallback to searching by paper title
+        paper_title = f"{paper['codename']} ({paper['conference']})"
+        query_data = {
+            "filter": {
+                "property": "Name",
+                "title": {
+                    "contains": paper['codename']
+                }
+            }
+        }
+    
+    try:
+        response = requests.post(f'https://api.notion.com/v1/databases/{database_id}/query',
+                               headers=headers, json=query_data)
+        
+        if response.status_code == 200:
+            results = response.json().get('results', [])
+            if results:
+                return results[0]  # Return first match
+            else:
+                print(f"❌ Paper '{codename}' not found in Notion database.")
+                return None
+        else:
+            print(f"❌ Error querying Notion: {response.status_code} - {response.text}")
+            return None
+    
+    except Exception as e:
+        print(f"❌ Error querying Notion: {e}")
+        return None
+
+
+def get_papers_by_project(project_name: str) -> list:
+    """Get papers from Notion by project name."""
+    notion_config = load_notion_config()
+    if not notion_config:
+        print("❌ Notion not configured. Run 'porg notion --setup' first.")
+        return []
+    
+    token = notion_config['token']
+    database_id = notion_config['database_id']
+    
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json'
+    }
+    
+    query_data = {
+        "filter": {
+            "property": "Related Project",
+            "multi_select": {
+                "contains": project_name
+            }
+        }
+    }
+    
+    try:
+        response = requests.post(f'https://api.notion.com/v1/databases/{database_id}/query',
+                               headers=headers, json=query_data)
+        
+        if response.status_code == 200:
+            results = response.json().get('results', [])
+            return results
+        else:
+            print(f"❌ Error querying Notion: {response.status_code} - {response.text}")
+            return []
+    
+    except Exception as e:
+        print(f"❌ Error querying Notion: {e}")
+        return []
+
+
+def get_papers_by_topic(topic_name: str) -> list:
+    """Get papers from Notion by topic name."""
+    notion_config = load_notion_config()
+    if not notion_config:
+        print("❌ Notion not configured. Run 'porg notion --setup' first.")
+        return []
+    
+    token = notion_config['token']
+    database_id = notion_config['database_id']
+    
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json'
+    }
+    
+    query_data = {
+        "filter": {
+            "property": "Topic",
+            "multi_select": {
+                "contains": topic_name
+            }
+        }
+    }
+    
+    try:
+        response = requests.post(f'https://api.notion.com/v1/databases/{database_id}/query',
+                               headers=headers, json=query_data)
+        
+        if response.status_code == 200:
+            results = response.json().get('results', [])
+            return results
+        else:
+            print(f"❌ Error querying Notion: {response.status_code} - {response.text}")
+            return []
+    
+    except Exception as e:
+        print(f"❌ Error querying Notion: {e}")
+        return []
+
+
+def format_paper_info(paper_data: dict) -> None:
+    """Format and print paper information in human readable form."""
+    properties = paper_data.get('properties', {})
+    
+    # Get title
+    title_prop = properties.get('Name', {}).get('title', [])
+    title = title_prop[0].get('plain_text', 'Unknown Title') if title_prop else 'Unknown Title'
+    
+    print(f"📄 Paper Information")
+    print("=" * 50)
+    print(f"Title: {title}")
+    
+    # Get conventional name
+    conv_name_prop = properties.get('Conventional Name', {}).get('rich_text', [])
+    if conv_name_prop:
+        conv_name = conv_name_prop[0].get('plain_text', '')
+        if conv_name:
+            print(f"Conventional Name: {conv_name}")
+    
+    # Get projects
+    projects_prop = properties.get('Related Project', {}).get('multi_select', [])
+    if projects_prop:
+        project_names = [proj['name'] for proj in projects_prop]
+        print(f"Related Projects: {', '.join(project_names)}")
+    
+    # Get topics
+    topics_prop = properties.get('Topic', {}).get('multi_select', [])
+    if topics_prop:
+        topic_names = [topic['name'] for topic in topics_prop]
+        print(f"Topics: {', '.join(topic_names)}")
+    
+    # Get status
+    status_prop = properties.get('Status', {}).get('status', {})
+    if status_prop:
+        status_name = status_prop.get('name', 'Unknown')
+        print(f"Status: {status_name}")
+    
+    # Get last read date
+    last_read_prop = properties.get('Last Read', {}).get('date', {})
+    if last_read_prop:
+        last_read = last_read_prop.get('start', 'Unknown')
+        print(f"Last Read: {last_read}")
+    
+    # Get URL from page content or title link
+    url = None
+    if title_prop:
+        title_link = title_prop[0].get('text', {}).get('link', {})
+        if title_link:
+            url = title_link.get('url')
+    
+    if url:
+        print(f"URL: {url}")
+
+
+def format_paper_list(papers: list) -> None:
+    """Format and print a list of paper titles, one per line."""
+    if not papers:
+        print("No papers found.")
+        return
+    
+    print(f"Found {len(papers)} paper(s):")
+    print("-" * 30)
+    
+    for paper in papers:
+        properties = paper.get('properties', {})
+        title_prop = properties.get('Name', {}).get('title', [])
+        title = title_prop[0].get('plain_text', 'Unknown Title') if title_prop else 'Unknown Title'
+        print(f"• {title}")
+
+
+def get_all_papers() -> list:
+    """Get all papers from Notion database."""
+    notion_config = load_notion_config()
+    if not notion_config:
+        print("❌ Notion not configured. Run 'porg notion --setup' first.")
+        return []
+    
+    token = notion_config['token']
+    database_id = notion_config['database_id']
+    
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json'
+    }
+    
+    # Query all papers (no filter)
+    query_data = {}
+    
+    try:
+        response = requests.post(f'https://api.notion.com/v1/databases/{database_id}/query',
+                               headers=headers, json=query_data)
+        
+        if response.status_code == 200:
+            results = response.json().get('results', [])
+            return results
+        else:
+            print(f"❌ Error querying Notion: {response.status_code} - {response.text}")
+            return []
+    
+    except Exception as e:
+        print(f"❌ Error querying Notion: {e}")
+        return []
