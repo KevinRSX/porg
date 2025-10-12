@@ -99,10 +99,5 @@ porg stores configuration and metadata in `~/.porg/`:
 - `papers.json` - Local paper metadata and naming information
 
 
-## Roadmap
-- **Zotero Integration** - Add comprehensive support for Zotero reference manager, including import/export functionality and synchronization with existing Zotero libraries
-- **Paper notes** - Support connecting the paper to paper notes written externally
-- **Full paper titles** - Add support for storing and displaying full paper titles separately from codenames, allowing display format like "Full Paper Title [Codename] (Conference)" for better readability
-
 ### License
 MIT License - see LICENSE file for details.
