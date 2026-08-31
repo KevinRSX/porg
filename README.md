@@ -56,6 +56,62 @@ You can manually organize papers into subdirectories like:
 - You maintain full control over paper organization
 - No need to update configuration when creating new subdirectories
 
+## Papers porg cannot download
+
+Some papers sit behind a paywall or otherwise refuse to be fetched from their
+URL. When a download fails, `porg add` still records the metadata and creates
+the Notion entry, and reports the PDF as `missing`:
+
+```
+Process Summary:
+   ✅ Metadata saved: Yes
+   ✗ PDF: missing
+   ✅ Notion integration: Success
+```
+
+Every command that lists papers shows where each PDF actually is:
+
+- `local` — in `download_dir`
+- `archived` — somewhere under `archive_read_dir`
+- `missing` — in neither, so you do not have the paper yet
+
+```bash
+$ porg get
+• DistServe (OSDI 2024) [local]
+• Exokernel (SIGOPS 1995) [archived]
+• Paywalled Thing (ISCA 2022) [missing]
+```
+
+Download such a paper by hand into `download_dir` or anywhere under
+`archive_read_dir`, and the next command that looks for it will find it. There
+is no state to update: the directories are the source of truth for whether you
+have a paper.
+
+## What `porg sync` reconciles
+
+`porg sync` keeps three things in step — your metadata config, your paper
+directories, and your Notion database:
+
+1. **Config → disk and Notion.** Every paper in `papers.json` that has no PDF
+   is downloaded, and every one without a Notion entry gets one. A paper with
+   no URL is reported as needing a manual download instead.
+2. **Disk → config.** Any PDF in `download_dir` or the archive that no metadata
+   entry claims was downloaded by hand, so sync offers to adopt it. It asks for
+   a codename and conference exactly like `porg add`, and — since there is no
+   URL for a paper you fetched yourself — the Notion page it creates does not
+   link out. Accepting a conventional name that differs from the filename
+   renames the PDF to match.
+3. **Notion → config.** Any Notion entry that no metadata entry claims is shown
+   to you, and you can add it to the config or delete it from Notion.
+
+The config stays the source of truth for a paper's *details* — sync never
+rewrites the codename, conference, or URL of a paper you have already
+recorded. The directories are the source of truth for whether the paper is
+actually on hand.
+
+Sync is interactive whenever it finds something unclaimed. Skipping a paper is
+not remembered, so a PDF you keep declining will be offered again next time.
+
 ## Usage
 Basic usage:
 ```bash

@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 import json
+import re
 import yaml
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 from src.icons import SUCCESS, ERROR, WARNING
 
@@ -55,17 +56,73 @@ def get_archive_read_dir() -> Path:
 
 def find_paper_in_archive(filename: str) -> Path:
     """Recursively search for a paper in the archive read directory.
-    
+
     Returns the full path if found, None otherwise.
     """
     archive_read_dir = get_archive_read_dir()
-    
+
     # Use glob to recursively search for the file
     matches = list(archive_read_dir.glob(f"**/{filename}"))
-    
+
     if matches:
         return matches[0]  # Return first match
     return None
+
+
+def locate_paper_pdf(conventional_name: str) -> Tuple[Optional[Path], Optional[str]]:
+    """Find a paper's PDF on disk.
+
+    Returns (path, "download") or (path, "archive"), and (None, None) when the
+    paper is in neither the download directory nor the archive.
+    """
+    filename = f"{conventional_name}.pdf"
+
+    download_path = get_download_dir() / filename
+    if download_path.exists():
+        return download_path, "download"
+
+    # archive_dir is normally inside archive_read_dir, but check it directly in
+    # case it has been configured somewhere else.
+    archive_path = get_archive_dir() / filename
+    if archive_path.exists():
+        return archive_path, "archive"
+
+    archive_path = find_paper_in_archive(filename)
+    if archive_path:
+        return archive_path, "archive"
+
+    return None, None
+
+
+def describe_paper_location(conventional_name: str) -> str:
+    """Describe where a paper's PDF is, for display."""
+    _, location = locate_paper_pdf(conventional_name)
+    if location == "download":
+        return "local"
+    if location == "archive":
+        return "archived"
+    return "missing"
+
+
+def scan_pdf_files() -> Dict[str, Path]:
+    """Find every PDF in the download and archive directories.
+
+    Returns {conventional_name: path}, preferring the download directory when
+    the same paper is in both.
+    """
+    found = {}
+
+    download_dir = get_download_dir()
+    if download_dir.exists():
+        for path in sorted(download_dir.glob("*.pdf")):
+            found.setdefault(path.stem, path)
+
+    for root in (get_archive_read_dir(), get_archive_dir()):
+        if root.exists():
+            for path in sorted(root.glob("**/*.pdf")):
+                found.setdefault(path.stem, path)
+
+    return found
 
 
 def ensure_config_dir() -> None:
@@ -220,27 +277,32 @@ def add_paper_complete(url: str) -> None:
     print(f"   Conference: {paper_metadata['conference']}")
     print(f"   URL: {paper_metadata['url']}")
 
-    # Step 2: Download paper
+    # Step 2: Download the paper, unless a copy is already on disk
     print("\nDownloading paper...")
     download_dir = get_download_dir()
     download_dir.mkdir(parents=True, exist_ok=True)
 
-    filename = f"{paper_metadata['conventional_name']}.pdf"
-    filepath = download_dir / filename
+    conventional_name = paper_metadata["conventional_name"]
+    filepath = download_dir / f"{conventional_name}.pdf"
 
-    download_successful = False
-    if filepath.exists():
-        print(f"File already exists: {filepath}")
-        download_successful = True
+    existing_path, location = locate_paper_pdf(conventional_name)
+    paper_available = existing_path is not None
+
+    if existing_path:
+        where = "download_dir" if location == "download" else "archive"
+        print(f"File already exists in {where}: {existing_path}")
     else:
         try:
             print(f"Downloading to: {filepath}")
             urllib.request.urlretrieve(url, filepath)
             print(f"{SUCCESS} Successfully downloaded: {filepath}")
-            download_successful = True
+            paper_available = True
         except Exception as e:
+            filepath.unlink(missing_ok=True)
             print(f"{ERROR} Error downloading paper: {e}")
-            print(f"{WARNING} Download failed, but continuing with Notion integration...")
+            print(
+                f"{WARNING} Download failed, but continuing with Notion integration..."
+            )
 
     # Step 3: Add to Notion
     print("\nAdding to Notion...")
@@ -255,136 +317,418 @@ def add_paper_complete(url: str) -> None:
     # Final status summary
     print("\nProcess Summary:")
     print(f"   {SUCCESS} Metadata saved: Yes")
-    download_status = "Success" if download_successful else "Failed"
-    download_icon = SUCCESS if download_successful else ERROR
-    print(f"   {download_icon} Download: {download_status}")
+    pdf_icon = SUCCESS if paper_available else ERROR
+    print(f"   {pdf_icon} PDF: {describe_paper_location(conventional_name)}")
     notion_status = "Success" if notion_successful else "Failed"
     notion_icon = SUCCESS if notion_successful else ERROR
     print(f"   {notion_icon} Notion integration: {notion_status}")
 
-    if not download_successful:
-        print(f"\nNote: You may need to manually download the paper from: {url}")
+    if not paper_available:
+        print(
+            f"\nNote: the PDF is in neither download_dir nor the archive. "
+            f"Download it manually from: {url}"
+        )
         print(f"   Save it as: {filepath}")
 
-    if download_successful and notion_successful:
+    if paper_available and notion_successful:
         print("\nPaper successfully added to your research collection!")
 
 
-def sync_papers() -> None:
-    """Sync papers from config to downloads and Notion."""
-    from src.notion import add_paper, check_paper_exists_in_notion
-    import urllib.request
+def guess_metadata_from_stem(stem: str) -> Tuple[str, str]:
+    """Guess a codename and conference from a conventional-name filename."""
+    if "-" in stem:
+        codename, conference = stem.rsplit("-", 1)
+        return codename, conference
+    return stem, ""
 
-    print("Starting paper synchronization...")
 
-    # Load papers from config
-    papers_data = load_papers_metadata()
-    papers = papers_data.get("papers", [])
+def guess_metadata_from_title(title: str) -> Tuple[str, str]:
+    """Guess a codename and conference from a '<codename> (<conference>)' title."""
+    match = re.match(r"^(.*?)\s*\((.*)\)\s*$", title)
+    if match:
+        return match.group(1).strip(), match.group(2).strip()
+    return title.strip(), ""
 
-    if not papers:
-        print("No papers found in configuration file.")
-        return
 
-    print(f"Found {len(papers)} papers in configuration")
+def prompt_adoption_metadata(
+    default_codename: str = "",
+    default_conference: str = "",
+    known_conventional_name: str = "",
+    known_name_label: str = "",
+    prefer_generated: bool = True,
+) -> Optional[dict]:
+    """Prompt for paper metadata the way 'porg add' does, with defaults.
 
-    # Set up paths
-    download_dir = get_download_dir()
-    download_dir.mkdir(parents=True, exist_ok=True)
+    known_conventional_name is the name the paper already goes by, either the
+    PDF's filename or the one recorded in Notion. prefer_generated decides
+    which of it and the generated name is offered as the default; the other is
+    shown alongside so it can be typed instead.
 
-    # Track sync progress
-    missing_downloads = []
+    Returns the metadata dict, or None if the user gave up on this paper.
+    """
+    codename_prompt = "   Codename"
+    if default_codename:
+        codename_prompt += f" [{default_codename}]"
+    codename = input(f"{codename_prompt}: ").strip() or default_codename
+    if not codename:
+        print(f"   {WARNING} Codename cannot be empty, skipping.")
+        return None
+
+    conference_prompt = "   Conference"
+    if default_conference:
+        conference_prompt += f" [{default_conference}]"
+    conference = input(f"{conference_prompt}: ").strip() or default_conference
+    if not conference:
+        print(f"   {WARNING} Conference cannot be empty, skipping.")
+        return None
+
+    generated = generate_conventional_name(codename, conference)
+    if known_conventional_name and known_conventional_name != generated:
+        if prefer_generated:
+            fallback, alternative = generated, known_conventional_name
+            label = known_name_label or "current"
+        else:
+            fallback, alternative = known_conventional_name, generated
+            label = "generated"
+        name_prompt = f"   Conventional name [{fallback}] ({label}: {alternative})"
+    else:
+        fallback = generated
+        name_prompt = f"   Conventional name [{fallback}]"
+    conventional_name = input(f"{name_prompt}: ").strip() or fallback
+
+    return {
+        "conventional_name": conventional_name,
+        "url": None,
+        "codename": codename,
+        "conference": conference,
+    }
+
+
+def check_configured_papers(papers: List[dict]) -> Tuple[List[dict], List[dict]]:
+    """Report where each configured paper stands, on disk and in Notion."""
+    from src.notion import check_paper_exists_in_notion
+
+    missing_files = []
     missing_notion = []
-    download_failures = []
-    notion_failures = []
 
-    # Check each paper
     for paper in papers:
         conventional_name = paper["conventional_name"]
-        codename = paper["codename"]
-        conference = paper["conference"]
-        url = paper["url"]
-
         print(f"\nChecking: {conventional_name}")
 
-        # Check if file exists in download_dir or archive (recursively)
-        filename = f"{conventional_name}.pdf"
-        download_path = download_dir / filename
-        archive_path = find_paper_in_archive(filename)
-
-        if not download_path.exists() and not archive_path:
-            missing_downloads.append(paper)
-            print("   Missing download")
+        path, location = locate_paper_pdf(conventional_name)
+        if location == "download":
+            print(f"   {SUCCESS} File exists in download_dir")
+        elif location == "archive":
+            print(f"   {SUCCESS} File exists in archive ({path})")
         else:
-            if download_path.exists():
-                print(f"   {SUCCESS} File exists in download_dir")
-            else:
-                print(f"   {SUCCESS} File exists in archive ({archive_path})")
+            missing_files.append(paper)
+            print(f"   {ERROR} Missing: in neither download_dir nor archive")
 
-        # Check if Notion entry exists
-        if not check_paper_exists_in_notion(conventional_name):
-            missing_notion.append(paper)
-            print("   Missing Notion entry")
-        else:
+        if check_paper_exists_in_notion(conventional_name):
             print(f"   {SUCCESS} Notion entry exists")
+        else:
+            missing_notion.append(paper)
+            print(f"   {WARNING} Missing Notion entry")
 
-    # Summary of what needs to be synced
+    return missing_files, missing_notion
+
+
+def download_missing_papers(missing_files: List[dict]) -> List[dict]:
+    """Download the configured papers that are not on disk. Returns failures."""
+    import urllib.request
+
+    failures = []
+    if not missing_files:
+        return failures
+
+    print(f"\nDownloading {len(missing_files)} missing files...")
+    download_dir = get_download_dir()
+
+    for paper in missing_files:
+        conventional_name = paper["conventional_name"]
+        url = paper.get("url")
+
+        if not url:
+            print(
+                f"   {WARNING} {conventional_name}: no URL recorded, "
+                f"download it manually"
+            )
+            failures.append(paper)
+            continue
+
+        filepath = download_dir / f"{conventional_name}.pdf"
+        try:
+            print(f"   Downloading {conventional_name}...")
+            urllib.request.urlretrieve(url, filepath)
+            print(f"   {SUCCESS} Downloaded: {filepath.name}")
+        except Exception as e:
+            filepath.unlink(missing_ok=True)
+            print(f"   {ERROR} Failed to download {conventional_name}: {e}")
+            failures.append(paper)
+
+    return failures
+
+
+def create_missing_notion_entries(missing_notion: List[dict]) -> List[dict]:
+    """Create Notion entries for configured papers that lack one."""
+    from src.notion import add_paper
+
+    failures = []
+    if not missing_notion:
+        return failures
+
+    print(f"\nAdding {len(missing_notion)} missing Notion entries...")
+
+    for paper in missing_notion:
+        conventional_name = paper["conventional_name"]
+        notion_title = f"{paper['codename']} ({paper['conference']})"
+
+        try:
+            print(f"   Adding to Notion: {conventional_name}")
+            add_paper(
+                notion_title,
+                paper.get("url"),
+                conventional_name,
+                prompt_url=False,
+            )
+            print(f"   {SUCCESS} Added to Notion: {notion_title}")
+        except Exception as e:
+            print(f"   {ERROR} Failed to add {conventional_name} to Notion: {e}")
+            failures.append(paper)
+
+    return failures
+
+
+def adopt_paper_from_file(path: Path) -> Optional[dict]:
+    """Record a manually downloaded PDF in the metadata config and Notion."""
+    from src.notion import add_paper
+
+    print(f"\nUnregistered PDF: {path}")
+    answer = input("   Add it to your paper metadata? (y/N): ").strip().lower()
+    if answer not in ["y", "yes"]:
+        print("   Skipped.")
+        return None
+
+    codename_guess, conference_guess = guess_metadata_from_stem(path.stem)
+    metadata = prompt_adoption_metadata(
+        codename_guess, conference_guess, path.stem, "current filename"
+    )
+    if not metadata:
+        return None
+
+    # The conventional name has to match the filename, or porg will not find
+    # the paper again. Renaming the file keeps the two in step.
+    if metadata["conventional_name"] != path.stem:
+        new_path = path.with_name(f"{metadata['conventional_name']}.pdf")
+        if new_path.exists():
+            print(f"   {ERROR} {new_path} already exists, keeping the filename.")
+            metadata["conventional_name"] = path.stem
+        else:
+            path.rename(new_path)
+            print(f"   Renamed to: {new_path}")
+
+    if not save_paper_metadata(metadata):
+        return None
+
+    # The paper was downloaded by hand, so there is no URL to link to.
+    notion_title = f"{metadata['codename']} ({metadata['conference']})"
+    try:
+        add_paper(notion_title, None, metadata["conventional_name"], prompt_url=False)
+    except Exception as e:
+        print(f"   {ERROR} Failed to add {notion_title} to Notion: {e}")
+
+    return metadata
+
+
+def adopt_unregistered_files() -> List[dict]:
+    """Offer to adopt PDFs on disk that no metadata entry claims."""
+    known = {
+        paper["conventional_name"] for paper in load_papers_metadata().get("papers", [])
+    }
+    orphans = {
+        stem: path for stem, path in scan_pdf_files().items() if stem not in known
+    }
+
+    if not orphans:
+        return []
+
+    print(f"\nFound {len(orphans)} PDF(s) with no metadata entry.")
+    adopted = []
+    for stem in sorted(orphans):
+        metadata = adopt_paper_from_file(orphans[stem])
+        if metadata:
+            adopted.append(metadata)
+
+    return adopted
+
+
+def reconcile_notion_page(page: dict) -> Tuple[Optional[dict], bool]:
+    """Offer to adopt or delete one Notion entry. Returns (metadata, deleted)."""
+    from src.notion import (
+        archive_notion_page,
+        extract_page_conventional_name,
+        extract_page_title,
+        extract_page_url,
+        set_page_conventional_name,
+    )
+
+    title = extract_page_title(page)
+    url = extract_page_url(page)
+    conventional_name = extract_page_conventional_name(page)
+
+    print(f"\nNotion entry with no metadata record: {title}")
+    if conventional_name:
+        print(f"   Conventional name: {conventional_name}")
+    if url:
+        print(f"   URL: {url}")
+
+    answer = (
+        input("   [a]dd to metadata, [d]elete from Notion, [s]kip (default): ")
+        .strip()
+        .lower()
+    )
+
+    if answer in ["d", "delete"]:
+        confirm = input(f"   Move '{title}' to Notion's trash? (y/N): ").strip().lower()
+        if confirm in ["y", "yes"] and archive_notion_page(page["id"]):
+            print(f"   {SUCCESS} Deleted from Notion: {title}")
+            return None, True
+        print("   Skipped.")
+        return None, False
+
+    if answer not in ["a", "add"]:
+        print("   Skipped.")
+        return None, False
+
+    codename_guess, conference_guess = guess_metadata_from_title(title)
+    metadata = prompt_adoption_metadata(
+        codename_guess, conference_guess, conventional_name, prefer_generated=False
+    )
+    if not metadata:
+        return None, False
+
+    metadata["url"] = url
+    if not save_paper_metadata(metadata):
+        return None, False
+
+    # Stamp the conventional name onto the page so the next sync matches it.
+    if metadata["conventional_name"] != conventional_name:
+        set_page_conventional_name(page["id"], metadata["conventional_name"])
+
+    return metadata, False
+
+
+def reconcile_notion_entries() -> Tuple[List[dict], List[dict]]:
+    """Offer to adopt or delete Notion entries that no metadata entry claims."""
+    from src.notion import (
+        extract_page_conventional_name,
+        extract_page_title,
+        get_all_papers,
+        get_database_properties,
+        load_notion_config,
+    )
+
+    notion_config = load_notion_config()
+    if not notion_config:
+        return [], []
+
+    properties = get_database_properties(
+        notion_config["token"], notion_config["database_id"]
+    )
+    if "Conventional Name" not in properties:
+        print(
+            f"\n{WARNING} Your Notion database has no 'Conventional Name' property, "
+            f"so porg cannot match its entries against your metadata. "
+            f"Skipping Notion reconciliation."
+        )
+        return [], []
+
+    papers = load_papers_metadata().get("papers", [])
+    known_names = {paper["conventional_name"] for paper in papers}
+    known_titles = {
+        f"{paper['codename']} ({paper['conference']})".lower() for paper in papers
+    }
+
+    orphans = []
+    for page in get_all_papers():
+        conventional_name = extract_page_conventional_name(page)
+        if conventional_name:
+            if conventional_name not in known_names:
+                orphans.append(page)
+        elif extract_page_title(page).lower() not in known_titles:
+            orphans.append(page)
+
+    if not orphans:
+        return [], []
+
+    print(f"\nFound {len(orphans)} Notion entry(ies) with no metadata record.")
+    adopted = []
+    deleted = []
+    for page in orphans:
+        metadata, was_deleted = reconcile_notion_page(page)
+        if metadata:
+            adopted.append(metadata)
+        if was_deleted:
+            deleted.append(page)
+
+    return adopted, deleted
+
+
+def sync_papers() -> None:
+    """Sync papers across the metadata config, local directories, and Notion.
+
+    The metadata config stays the source of truth for a paper's details, but
+    the download and archive directories are the source of truth for whether a
+    paper is on hand, and porg offers to adopt anything it finds in them, or in
+    Notion, that the config does not know about yet.
+    """
+    print("Starting paper synchronization...")
+
+    papers = load_papers_metadata().get("papers", [])
+    if papers:
+        print(f"Found {len(papers)} papers in configuration")
+    else:
+        print("No papers found in configuration file.")
+
+    get_download_dir().mkdir(parents=True, exist_ok=True)
+
+    # Pass 1: everything the config already knows about
+    missing_files, missing_notion = check_configured_papers(papers)
+
     print("\nSync Summary:")
-    print(f"   Missing downloads: {len(missing_downloads)}")
+    print(f"   Missing files: {len(missing_files)}")
     print(f"   Missing Notion entries: {len(missing_notion)}")
 
-    if not missing_downloads and not missing_notion:
-        print(f"\n{SUCCESS} Everything is already in sync!")
-        return
+    download_failures = download_missing_papers(missing_files)
+    notion_failures = create_missing_notion_entries(missing_notion)
 
-    # Download missing files
-    if missing_downloads:
-        print(f"\nDownloading {len(missing_downloads)} missing files...")
-        for paper in missing_downloads:
-            conventional_name = paper["conventional_name"]
-            url = paper["url"]
-            filename = f"{conventional_name}.pdf"
-            filepath = download_dir / filename
+    # Pass 2: PDFs downloaded by hand that the config has never seen
+    adopted_files = adopt_unregistered_files()
 
-            try:
-                print(f"   Downloading {conventional_name}...")
-                urllib.request.urlretrieve(url, filepath)
-                print(f"   {SUCCESS} Downloaded: {filename}")
-            except Exception as e:
-                print(f"   {ERROR} Failed to download {conventional_name}: {e}")
-                download_failures.append(paper)
-
-    # Add missing Notion entries
-    if missing_notion:
-        print(f"\nAdding {len(missing_notion)} missing Notion entries...")
-        for paper in missing_notion:
-            conventional_name = paper["conventional_name"]
-            codename = paper["codename"]
-            conference = paper["conference"]
-            url = paper["url"]
-
-            notion_title = f"{codename} ({conference})"
-
-            try:
-                print(f"   Adding to Notion: {conventional_name}")
-                add_paper(notion_title, url, conventional_name)
-                print(f"   {SUCCESS} Added to Notion: {notion_title}")
-            except Exception as e:
-                print(f"   {ERROR} Failed to add {conventional_name} to Notion: {e}")
-                notion_failures.append(paper)
+    # Pass 3: Notion entries the config has never seen
+    adopted_notion, deleted_notion = reconcile_notion_entries()
 
     # Final summary
     print("\nSync Results:")
     print(
-        f"   {SUCCESS} Downloads completed: {len(missing_downloads) - len(download_failures)}"
+        f"   {SUCCESS} Downloads completed: "
+        f"{len(missing_files) - len(download_failures)}"
     )
     print(f"   {ERROR} Download failures: {len(download_failures)}")
-    print(f"   {SUCCESS} Notion entries added: {len(missing_notion) - len(notion_failures)}")
+    print(
+        f"   {SUCCESS} Notion entries added: "
+        f"{len(missing_notion) - len(notion_failures)}"
+    )
     print(f"   {ERROR} Notion failures: {len(notion_failures)}")
+    print(f"   {SUCCESS} Papers adopted from disk: {len(adopted_files)}")
+    print(f"   {SUCCESS} Papers adopted from Notion: {len(adopted_notion)}")
+    print(f"   {SUCCESS} Notion entries deleted: {len(deleted_notion)}")
 
     if download_failures:
-        print(f"\n{WARNING} Download failures:")
+        print(f"\n{WARNING} Still missing, download these by hand:")
         for paper in download_failures:
-            print(f"   - {paper['conventional_name']}: {paper['url']}")
+            url = paper.get("url") or "no URL recorded"
+            print(f"   - {paper['conventional_name']}: {url}")
 
     if notion_failures:
         print(f"\n{WARNING} Notion failures:")
@@ -430,27 +774,21 @@ def open_paper(codename: str) -> None:
     filename = f"{conventional_name}.pdf"
 
     download_dir = get_download_dir()
-    archive_read_dir = get_archive_read_dir()
-
     download_path = download_dir / filename
-    archive_path = find_paper_in_archive(filename)
+    path, location = locate_paper_pdf(conventional_name)
 
-    # Check if file exists in download_dir (cache)
-    if download_path.exists():
+    if location == "download":
         print(f"Opening from cache: {download_path}")
-    elif archive_path:
+    elif location == "archive":
         # Copy from archive to download_dir
         print(f"Copying from archive to cache: {conventional_name}")
         download_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(archive_path, download_path)
+        shutil.copy2(path, download_path)
         print(f"{SUCCESS} Copied to: {download_path}")
     else:
-        print(
-            f"Paper '{conventional_name}.pdf' not found in either "
-            f"download_dir or archive"
-        )
+        print(f"Paper '{filename}' not found in either download_dir or archive")
         print(f"   Download dir: {download_dir}")
-        print(f"   Archive search dir: {archive_read_dir}")
+        print(f"   Archive search dir: {get_archive_read_dir()}")
         return
 
     # Open the file
@@ -578,4 +916,5 @@ def get_all_papers_list() -> None:
     for paper in papers:
         codename = paper.get("codename", "Unknown")
         conference = paper.get("conference", "Unknown")
-        print(f"• {codename} ({conference})")
+        location = describe_paper_location(paper["conventional_name"])
+        print(f"• {codename} ({conference}) [{location}]")

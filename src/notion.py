@@ -333,9 +333,17 @@ def prompt_for_status(prop_name: str, options: list) -> dict:
 
 
 def add_paper(
-    paper_name: str, paper_url: str = None, conventional_name: str = None
+    paper_name: str,
+    paper_url: str = None,
+    conventional_name: str = None,
+    prompt_url: bool = True,
 ) -> None:
-    """Add a paper to the Notion database."""
+    """Add a paper to the Notion database.
+
+    When prompt_url is False and no URL is given, the page is created without
+    any URL instead of asking for one. This is how papers that were downloaded
+    manually get their Notion entry.
+    """
     notion_config = load_notion_config()
 
     if not notion_config:
@@ -352,12 +360,15 @@ def add_paper(
     if not properties:
         return
 
-    # Handle URL - either from command line or prompt
-    if paper_url is None:
-        url = input("\nPaper URL (leave empty to skip): ").strip()
-    else:
+    # Handle URL - from the caller, from a prompt, or knowingly absent
+    if paper_url is not None:
         url = paper_url
         print(f"Using URL: {url}")
+    elif prompt_url:
+        url = input("\nPaper URL (leave empty to skip): ").strip()
+    else:
+        url = None
+        print("No URL recorded, so this page will not link to the paper.")
 
     # Prepare properties for the new page
     # Format title with proper Notion link format
@@ -581,7 +592,8 @@ def get_paper_by_name(codename: str) -> dict:
                 return None
         else:
             print(
-                f"{ERROR} Error querying Notion: {response.status_code} - {response.text}"
+                f"{ERROR} Error querying Notion: "
+                f"{response.status_code} - {response.text}"
             )
             return None
 
@@ -625,7 +637,8 @@ def get_papers_by_project(project_name: str) -> list:
             return results
         else:
             print(
-                f"{ERROR} Error querying Notion: {response.status_code} - {response.text}"
+                f"{ERROR} Error querying Notion: "
+                f"{response.status_code} - {response.text}"
             )
             return []
 
@@ -666,7 +679,8 @@ def get_papers_by_topic(topic_name: str) -> list:
             return results
         else:
             print(
-                f"{ERROR} Error querying Notion: {response.status_code} - {response.text}"
+                f"{ERROR} Error querying Notion: "
+                f"{response.status_code} - {response.text}"
             )
             return []
 
@@ -675,28 +689,109 @@ def get_papers_by_topic(topic_name: str) -> list:
         return []
 
 
+def extract_page_title(page: dict) -> str:
+    """Get the title text of a Notion page."""
+    title_prop = page.get("properties", {}).get("Name", {}).get("title", [])
+    if title_prop:
+        return title_prop[0].get("plain_text", "Unknown Title")
+    return "Unknown Title"
+
+
+def extract_page_url(page: dict) -> str:
+    """Get the paper URL linked from a Notion page title, if any."""
+    title_prop = page.get("properties", {}).get("Name", {}).get("title", [])
+    if title_prop:
+        link = title_prop[0].get("text", {}).get("link") or {}
+        return link.get("url")
+    return None
+
+
+def extract_page_conventional_name(page: dict) -> str:
+    """Get the conventional name recorded on a Notion page, if any."""
+    prop = page.get("properties", {}).get("Conventional Name", {}).get("rich_text", [])
+    if prop:
+        return prop[0].get("plain_text", "")
+    return ""
+
+
+def set_page_conventional_name(page_id: str, conventional_name: str) -> bool:
+    """Write the conventional name onto an existing Notion page."""
+    notion_config = load_notion_config()
+    if not notion_config:
+        return False
+
+    headers = {
+        "Authorization": f"Bearer {notion_config['token']}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "properties": {
+            "Conventional Name": {
+                "rich_text": [{"type": "text", "text": {"content": conventional_name}}]
+            }
+        }
+    }
+
+    try:
+        response = requests.patch(
+            f"https://api.notion.com/v1/pages/{page_id}",
+            headers=headers,
+            json=payload,
+        )
+        if response.status_code == 200:
+            return True
+        print(f"{ERROR} Error updating page: {response.status_code} - {response.text}")
+        return False
+    except Exception as e:
+        print(f"{ERROR} Error updating page: {e}")
+        return False
+
+
+def archive_notion_page(page_id: str) -> bool:
+    """Move a Notion page to the trash."""
+    notion_config = load_notion_config()
+    if not notion_config:
+        print(f"{ERROR} Notion not configured. Run 'porg notion --setup' first.")
+        return False
+
+    headers = {
+        "Authorization": f"Bearer {notion_config['token']}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.patch(
+            f"https://api.notion.com/v1/pages/{page_id}",
+            headers=headers,
+            json={"archived": True},
+        )
+        if response.status_code == 200:
+            return True
+        print(f"{ERROR} Error deleting page: {response.status_code} - {response.text}")
+        return False
+    except Exception as e:
+        print(f"{ERROR} Error deleting page: {e}")
+        return False
+
+
 def format_paper_info(paper_data: dict) -> None:
     """Format and print paper information in human readable form."""
-    properties = paper_data.get("properties", {})
+    from src.papers import describe_paper_location
 
-    # Get title
-    title_prop = properties.get("Name", {}).get("title", [])
-    title = (
-        title_prop[0].get("plain_text", "Unknown Title")
-        if title_prop
-        else "Unknown Title"
-    )
+    properties = paper_data.get("properties", {})
+    title = extract_page_title(paper_data)
 
     print("Paper Information")
     print("=" * 50)
     print(f"Title: {title}")
 
-    # Get conventional name
-    conv_name_prop = properties.get("Conventional Name", {}).get("rich_text", [])
-    if conv_name_prop:
-        conv_name = conv_name_prop[0].get("plain_text", "")
-        if conv_name:
-            print(f"Conventional Name: {conv_name}")
+    # Get conventional name, and whether the PDF is actually on disk
+    conv_name = extract_page_conventional_name(paper_data)
+    if conv_name:
+        print(f"Conventional Name: {conv_name}")
+        print(f"Local file: {describe_paper_location(conv_name)}")
 
     # Get projects
     projects_prop = properties.get("Related Project", {}).get("multi_select", [])
@@ -722,13 +817,8 @@ def format_paper_info(paper_data: dict) -> None:
         last_read = last_read_prop.get("start", "Unknown")
         print(f"Last Read: {last_read}")
 
-    # Get URL from page content or title link
-    url = None
-    if title_prop:
-        title_link = title_prop[0].get("text", {}).get("link", {})
-        if title_link:
-            url = title_link.get("url")
-
+    # Get URL from the title link
+    url = extract_page_url(paper_data)
     if url:
         print(f"URL: {url}")
 
@@ -742,15 +832,15 @@ def format_paper_list(papers: list) -> None:
     print(f"Found {len(papers)} paper(s):")
     print("-" * 30)
 
+    from src.papers import describe_paper_location
+
     for paper in papers:
-        properties = paper.get("properties", {})
-        title_prop = properties.get("Name", {}).get("title", [])
-        title = (
-            title_prop[0].get("plain_text", "Unknown Title")
-            if title_prop
-            else "Unknown Title"
-        )
-        print(f"• {title}")
+        title = extract_page_title(paper)
+        conventional_name = extract_page_conventional_name(paper)
+        if conventional_name:
+            print(f"• {title} [{describe_paper_location(conventional_name)}]")
+        else:
+            print(f"• {title}")
 
 
 def get_all_papers() -> list:
@@ -769,24 +859,31 @@ def get_all_papers() -> list:
         "Content-Type": "application/json",
     }
 
-    # Query all papers (no filter)
+    # Query all papers (no filter), following pagination to the last page
+    papers = []
     query_data = {}
 
     try:
-        response = requests.post(
-            f"https://api.notion.com/v1/databases/{database_id}/query",
-            headers=headers,
-            json=query_data,
-        )
-
-        if response.status_code == 200:
-            results = response.json().get("results", [])
-            return results
-        else:
-            print(
-                f"{ERROR} Error querying Notion: {response.status_code} - {response.text}"
+        while True:
+            response = requests.post(
+                f"https://api.notion.com/v1/databases/{database_id}/query",
+                headers=headers,
+                json=query_data,
             )
-            return []
+
+            if response.status_code != 200:
+                print(
+                    f"{ERROR} Error querying Notion: "
+                    f"{response.status_code} - {response.text}"
+                )
+                return []
+
+            payload = response.json()
+            papers.extend(payload.get("results", []))
+
+            if not payload.get("has_more"):
+                return papers
+            query_data = {"start_cursor": payload["next_cursor"]}
 
     except Exception as e:
         print(f"{ERROR} Error querying Notion: {e}")
