@@ -104,11 +104,12 @@ def describe_paper_location(conventional_name: str) -> str:
     return "missing"
 
 
-def scan_pdf_files() -> Dict[str, Path]:
-    """Find every PDF in the download and archive directories.
+def scan_download_pdfs() -> Dict[str, Path]:
+    """Find every PDF in the download directory.
 
-    Returns {conventional_name: path}, preferring the download directory when
-    the same paper is in both.
+    Returns {conventional_name: path}. The archive is deliberately left out:
+    it is a long-term store you organize yourself, not a queue of papers
+    waiting to be recorded.
     """
     found = {}
 
@@ -116,11 +117,6 @@ def scan_pdf_files() -> Dict[str, Path]:
     if download_dir.exists():
         for path in sorted(download_dir.glob("*.pdf")):
             found.setdefault(path.stem, path)
-
-    for root in (get_archive_read_dir(), get_archive_dir()):
-        if root.exists():
-            for path in sorted(root.glob("**/*.pdf")):
-                found.setdefault(path.stem, path)
 
     return found
 
@@ -541,18 +537,18 @@ def adopt_paper_from_file(path: Path) -> Optional[dict]:
 
 
 def adopt_unregistered_files() -> List[dict]:
-    """Offer to adopt PDFs on disk that no metadata entry claims."""
+    """Offer to adopt PDFs in the download directory that no metadata claims."""
     known = {
         paper["conventional_name"] for paper in load_papers_metadata().get("papers", [])
     }
     orphans = {
-        stem: path for stem, path in scan_pdf_files().items() if stem not in known
+        stem: path for stem, path in scan_download_pdfs().items() if stem not in known
     }
 
     if not orphans:
         return []
 
-    print(f"\nFound {len(orphans)} PDF(s) with no metadata entry.")
+    print(f"\nFound {len(orphans)} PDF(s) in download_dir with no metadata entry.")
     adopted = []
     for stem in sorted(orphans):
         metadata = adopt_paper_from_file(orphans[stem])
@@ -702,7 +698,7 @@ def sync_papers() -> None:
     download_failures = download_missing_papers(missing_files)
     notion_failures = create_missing_notion_entries(missing_notion)
 
-    # Pass 2: PDFs downloaded by hand that the config has never seen
+    # Pass 2: PDFs in download_dir that the config has never seen
     adopted_files = adopt_unregistered_files()
 
     # Pass 3: Notion entries the config has never seen
@@ -720,7 +716,7 @@ def sync_papers() -> None:
         f"{len(missing_notion) - len(notion_failures)}"
     )
     print(f"   {ERROR} Notion failures: {len(notion_failures)}")
-    print(f"   {SUCCESS} Papers adopted from disk: {len(adopted_files)}")
+    print(f"   {SUCCESS} Papers adopted from download_dir: {len(adopted_files)}")
     print(f"   {SUCCESS} Papers adopted from Notion: {len(adopted_notion)}")
     print(f"   {SUCCESS} Notion entries deleted: {len(deleted_notion)}")
 

@@ -85,7 +85,8 @@ $ porg get
 Download such a paper by hand into `download_dir` or anywhere under
 `archive_read_dir`, and the next command that looks for it will find it. There
 is no state to update: the directories are the source of truth for whether you
-have a paper.
+have a paper. Note the asymmetry — porg *looks* for a known paper in both
+places, but only offers to adopt unknown PDFs out of `download_dir`.
 
 ## What `porg sync` reconciles
 
@@ -95,12 +96,13 @@ directories, and your Notion database:
 1. **Config → disk and Notion.** Every paper in `papers.json` that has no PDF
    is downloaded, and every one without a Notion entry gets one. A paper with
    no URL is reported as needing a manual download instead.
-2. **Disk → config.** Any PDF in `download_dir` or the archive that no metadata
+2. **`download_dir` → config.** Any PDF in `download_dir` that no metadata
    entry claims was downloaded by hand, so sync offers to adopt it. It asks for
    a codename and conference exactly like `porg add`, and — since there is no
    URL for a paper you fetched yourself — the Notion page it creates does not
    link out. Accepting a conventional name that differs from the filename
-   renames the PDF to match.
+   renames the PDF to match. The archive is never scanned for papers to adopt:
+   it is a store you organize yourself, not a queue of things to record.
 3. **Notion → config.** Any Notion entry that no metadata entry claims is shown
    to you, and you can add it to the config or delete it from Notion.
 
